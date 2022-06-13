@@ -1,29 +1,40 @@
 defmodule Genetic do
-  @type population :: list()
+  @type mutation_rate :: non_neg_integer()
   @type population_size :: non_neg_integer()
   @type chromosome :: list()
+  @type population :: list(chromosome())
   @type genotype :: (() -> chromosome())
   @type fitness :: integer()
   @type fitness_function :: (chromosome() -> fitness())
   @type algorithm :: module()
-  @type mutation_rate :: non_neg_integer()
 
-  @spec run(algorithm) :: chromosome
-  def run(algo) do
-    population = initialize(algo)
-    evolve(population, algo)
+  @typedoc """
+  Options for tuning genetic algorithm operation.
+  """
+  @type hyper_params :: %{
+    population_size: population_size,
+    mutation_rate: mutation_rate
+  }
+  @default_hyper_params %{
+    population_size: 100,
+    mutation_rate: 5
+  }
+
+  @spec run(algorithm, hyper_params) :: chromosome
+  def run(algo, hyper_params \\ @default_hyper_params) do
+    population = initialize(algo, hyper_params.population_size)
+    evolve(population, algo, hyper_params, :os.system_time(:millisecond))
   end
 
-  @spec initialize(algorithm) :: population
-  def initialize(algo) do
-    population_size = algo.population_size()
+  @spec initialize(algorithm, population_size) :: population
+  def initialize(algo, population_size) do
     for _ <- 1..population_size, do: algo.genotype()
   end
 
-  @spec evolve(population, algorithm, generation :: integer()) :: population
-  def evolve(population, algo, generation \\ 0) do
+  @spec evolve(population, algorithm, hyper_params, timestamp :: integer(), generation :: integer()) :: population
+  def evolve(population, algo, hyper_params, ts, generation \\ 0) do
     [{best, best_fitness} | _] = population_eval = evaluate(population, algo)
-    IO.write("\rAlgo: #{algo} | MutRate: #{algo.mutation_rate()}% | Generation: #{generation} | Fitness: #{best_fitness}")
+    IO.write("\rAlgo: #{algo} @ #{inspect hyper_params} | TS: #{:os.system_time(:millisecond) - ts}ms | Generation: #{generation} | Fitness: #{best_fitness}")
 
     if best_fitness >= algo.max_fitness() do
       best
@@ -35,8 +46,8 @@ defmodule Genetic do
       population
       |> select()
       |> crossover(algo)
-      |> mutation(algo)
-      |> evolve(algo, generation + 1)
+      |> mutation(hyper_params.mutation_rate)
+      |> evolve(algo, hyper_params, ts, generation + 1)
     end
   end
 
@@ -62,10 +73,8 @@ defmodule Genetic do
     end)
   end
 
-  @spec mutation(population, algorithm) :: chromosome
-  def mutation(population, algo) do
-    mutation_rate = algo.mutation_rate()
-
+  @spec mutation(population, mutation_rate) :: chromosome
+  def mutation(population, mutation_rate) do
     Enum.map(population, fn chromosome ->
       if :rand.uniform(100) <= mutation_rate do
         Enum.shuffle(chromosome)
